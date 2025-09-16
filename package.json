@@ -13,7 +13,6 @@
     "@lit-protocol/networks": "^8.0.0-beta.15",
     "@tanstack/react-query": "^5",
     "buffer": "^6.0.3",
-    "porto": "^0.2.5",
     "react": "^19",
     "react-dom": "^19",
     "siwe": "^3.0.0",

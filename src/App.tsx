@@ -37,7 +37,7 @@ export function App() {
                 cursor: 'pointer'
               }}
             >
-              {showLitAction ? 'Hide Lit Action Test' : 'Show Lit Action Test'}
+              {showLitAction ? 'Hide Lit v8 Bug Demo' : 'Show Lit v8 Bug Demo'}
             </button>
             {showLitAction && (
               <Suspense fallback={<div>Loading Lit Action...</div>}>
@@ -86,7 +86,10 @@ function Connect() {
 
   return (
     <div>
-      <h2>Connect</h2>
+      <h2>Connect MetaMask</h2>
+      <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
+        Connect your MetaMask wallet to test Lit Protocol v8 bug reproduction
+      </p>
       <button
         onClick={() =>
           connect.connect({
@@ -95,7 +98,7 @@ function Connect() {
         }
         type="button"
       >
-        Sign in
+        Connect MetaMask
       </button>
       <div>{connect.status}</div>
       <div>{connect.error?.message}</div>

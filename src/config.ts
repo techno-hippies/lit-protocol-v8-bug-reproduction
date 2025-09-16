@@ -1,6 +1,6 @@
-import { porto } from 'porto/wagmi'
 import { createConfig, http } from 'wagmi'
 import { baseSepolia, base } from 'wagmi/chains'
+import { injected } from 'wagmi/connectors'
 
 // Chronicle Yellowstone - Lit Protocol's testnet
 const chronicleYellowstone = {
@@ -26,7 +26,7 @@ const chronicleYellowstone = {
 
 export const config = createConfig({
   chains: [baseSepolia, base, chronicleYellowstone],
-  connectors: [porto()],
+  connectors: [injected({ target: 'metaMask' })],
   multiInjectedProviderDiscovery: false,
   transports: {
     [baseSepolia.id]: http('https://base-sepolia.rpc.ithaca.xyz'),

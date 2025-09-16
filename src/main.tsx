@@ -1,9 +1,14 @@
+import { Buffer } from 'buffer'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { WagmiProvider } from 'wagmi'
 import { App } from './App.tsx'
 import { config } from './config.ts'
+
+// Polyfill Buffer for browser
+window.Buffer = Buffer
+globalThis.Buffer = Buffer
 
 const queryClient = new QueryClient()
 

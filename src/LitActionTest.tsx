@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { useAccount, useWalletClient, useSwitchChain } from 'wagmi'
 import { createLitClient } from '@lit-protocol/lit-client'
 import { nagaDev } from '@lit-protocol/networks'
+import { generateSessionKeyPair } from '@lit-protocol/crypto'
+import { LitActionResource, LitAbility, createSiweMessage } from '@lit-protocol/auth-helpers'
 import { createPublicClient, http, formatEther } from 'viem'
 
 export function LitActionTest() {
@@ -10,47 +12,38 @@ export function LitActionTest() {
   const { switchChain } = useSwitchChain()
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<string>('')
-  const [searchQuery, setSearchQuery] = useState('Drake')
   const [error, setError] = useState<string>('')
-  const [keys, setKeys] = useState<string>('')
   const [pkpInfo, setPkpInfo] = useState<any>(null)
   const [isMinting, setIsMinting] = useState(false)
   const [tstLPXBalance, setTstLPXBalance] = useState<string>('0')
   const [authData, setAuthData] = useState<any>(null)
 
-  // Chronicle Yellowstone network config
+  // Chronicle Yellowstone config
   const chronicleYellowstone = {
     id: 175188,
     name: 'Chronicle Yellowstone - Lit Protocol Testnet',
     network: 'chronicle-yellowstone',
-    nativeCurrency: {
-      decimals: 18,
-      name: 'Test LPX',
-      symbol: 'tstLPX',
-    },
-    rpcUrls: {
+    nativeCurrency: { decimals: 18, name: 'Test LPX', symbol: 'tstLPX' },
+    rpcUrls: { 
       default: { http: ['https://yellowstone-rpc.litprotocol.com'] },
-      public: { http: ['https://yellowstone-rpc.litprotocol.com'] },
+      public: { http: ['https://yellowstone-rpc.litprotocol.com'] }
     },
-    blockExplorers: {
-      default: { name: 'Explorer', url: 'https://yellowstone-explorer.litprotocol.com' },
+    blockExplorers: { 
+      default: { name: 'Explorer', url: 'https://yellowstone-explorer.litprotocol.com' } 
     },
   }
 
-  // Check Chronicle Yellowstone balance
+  // Balance check
   const checkYellowstoneBalance = async () => {
     if (!address) return
-
     try {
-      const publicClient = createPublicClient({
-        chain: chronicleYellowstone,
-        transport: http(),
+      const publicClient = createPublicClient({ 
+        chain: chronicleYellowstone, 
+        transport: http() 
       })
-
-      const balance = await publicClient.getBalance({
-        address: address as `0x${string}`,
+      const balance = await publicClient.getBalance({ 
+        address: address as `0x${string}` 
       })
-
       setTstLPXBalance(formatEther(balance))
       console.log('Chronicle Yellowstone balance:', formatEther(balance), 'tstLPX')
     } catch (err) {
@@ -58,69 +51,39 @@ export function LitActionTest() {
     }
   }
 
-  // Check balance on component mount and when address changes
-  useEffect(() => {
-    if (address) {
-      checkYellowstoneBalance()
-    }
+  useEffect(() => { 
+    if (address) checkYellowstoneBalance() 
   }, [address])
 
-  const checkPortoKeys = async () => {
-    if (!address || !walletClient) {
-      setError('Wallet not connected')
-      return
-    }
-
-    try {
-      // Check what keys are available in the Porto account
-      const keysResult = await (walletClient as any).request({
-        method: 'wallet_getKeys',
-        params: [{ address, chainId: '0x14a34' }] // Base Sepolia chain ID
-      })
-      
-      console.log('Porto keys:', keysResult)
-      setKeys(JSON.stringify(keysResult, null, 2))
-    } catch (err: any) {
-      console.error('Error getting Porto keys:', err)
-      setError(`Failed to get keys: ${err.message}`)
-    }
-  }
 
   const mintPKP = async () => {
-    if (!address || !walletClient) {
+    if (!address || !walletClient) { 
       setError('Wallet not connected')
-      return
+      return 
     }
-
-    if (parseFloat(tstLPXBalance) === 0) {
-      setError('No tstLPX balance. Please get test tokens from https://chronicle-yellowstone-faucet.getlit.dev/')
-      return
+    if (parseFloat(tstLPXBalance) === 0) { 
+      setError('No tstLPX balance. Get from https://chronicle-yellowstone-faucet.getlit.dev/')
+      return 
     }
 
     setIsMinting(true)
     setError('')
-
     let litClient: any = null
 
     try {
-      // Try to switch to Chronicle Yellowstone
-      console.log('Switching to Chronicle Yellowstone chain...')
-      try {
+      console.log('Switching to Chronicle Yellowstone...')
+      try { 
         await switchChain({ chainId: 175188 })
-        console.log('Chain switched successfully')
-      } catch (switchErr: any) {
-        console.warn('Chain switch failed, continuing anyway:', switchErr)
+        console.log('Chain switched') 
+      } catch (switchErr) { 
+        console.warn('Switch failed:', switchErr) 
       }
 
-      console.log('Creating Lit Client for PKP minting...')
-      litClient = await createLitClient({
-        network: nagaDev,
-      })
+      console.log('Creating Lit Client...')
+      litClient = await createLitClient({ network: nagaDev })
+      console.log('Lit client ready')
 
-      console.log('Lit client created')
-
-      // Step 1: Generate SIWE message and have Porto sign it
-      console.log('Creating SIWE message for authentication...')
+      // SIWE for authData with lowercase address
       const domain = window.location.host
       const uri = window.location.origin
       const statement = 'Sign in to mint a PKP'
@@ -128,28 +91,14 @@ export function LitActionTest() {
       const issuedAt = new Date().toISOString()
       const expirationTime = new Date(Date.now() + 1000 * 60 * 10).toISOString()
       const chainId = chronicleYellowstone.id
-      
-      const siweMessage = `${domain} wants you to sign in with your Ethereum account:
-${address}
+      const siweMessage = `${domain} wants you to sign in with your Ethereum account:\n${address!.toLowerCase()}\n\n${statement}\n\nURI: ${uri}\nVersion: 1\nChain ID: ${chainId}\nNonce: ${nonce}\nIssued At: ${issuedAt}\nExpiration Time: ${expirationTime}`
 
-${statement}
+      console.log('Signing SIWE with MetaMask...')
+      const signature = await walletClient.signMessage({ message: siweMessage })
+      console.log('Signed')
 
-URI: ${uri}
-Version: 1
-Chain ID: ${chainId}
-Nonce: ${nonce}
-Issued At: ${issuedAt}
-Expiration Time: ${expirationTime}`
-
-      console.log('Requesting Porto signature...')
-      const signature = await walletClient.signMessage({ 
-        message: siweMessage 
-      })
-      console.log('Porto signed message successfully')
-
-      // Create authData for EthWallet authentication
       const authDataResult = {
-        authMethodType: 1, // EthWallet type
+        authMethodType: 1,
         authMethodId: address!.toLowerCase(),
         accessToken: JSON.stringify({
           sig: signature,
@@ -158,15 +107,12 @@ Expiration Time: ${expirationTime}`
           address: address!.toLowerCase(),
         }),
       }
-      
-      console.log('Auth data generated:', authDataResult)
-      setAuthData(authDataResult) // Store for later use in execution
+      console.log('Auth data:', authDataResult)
+      setAuthData(authDataResult)
 
-      // Step 2: Use authService to mint PKP (avoids popup issues)
-      console.log('Minting PKP via auth service...')
+      // Mint with auth service
       let mintResult
       try {
-        // Use authService.mintWithAuth directly to avoid popup
         mintResult = await litClient.authService.mintWithAuth({
           authData: authDataResult,
           authServiceBaseUrl: 'https://naga-auth-service.onrender.com',
@@ -174,72 +120,44 @@ Expiration Time: ${expirationTime}`
         })
         console.log('Auth service mint response:', mintResult)
         
-        // If authService returns a transaction to sign, handle it
         if (mintResult?.txParams) {
-          console.log('Signing PKP mint transaction...')
-          // Switch back to Chronicle if needed
           await switchChain({ chainId: chronicleYellowstone.id })
-          
-          // Send the transaction using Porto
-          const txHash = await walletClient.sendTransaction({
-            ...mintResult.txParams,
-            chain: chronicleYellowstone,
+          const txHash = await walletClient.sendTransaction({ 
+            ...mintResult.txParams, 
+            chain: chronicleYellowstone 
           })
-          console.log('Transaction sent:', txHash)
-          
-          // Wait for transaction confirmation
-          const publicClient = createPublicClient({
-            chain: chronicleYellowstone,
-            transport: http(),
+          const publicClient = createPublicClient({ 
+            chain: chronicleYellowstone, 
+            transport: http() 
           })
           const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
-          console.log('Transaction confirmed:', receipt)
-          
-          // Extract PKP info from receipt or response
-          mintResult = {
-            ...mintResult,
-            transactionHash: txHash,
-            receipt,
-          }
+          mintResult = { ...mintResult, transactionHash: txHash, receipt }
         }
       } catch (mintErr: any) {
-        console.error('Auth service mint failed:', mintErr)
-        
-        // Fallback: Try direct mintWithEoa if auth service fails
-        console.log('Trying direct mintWithEoa as last resort...')
-        try {
-          mintResult = await litClient.mintWithEoa({
-            account: walletClient,
-          })
-        } catch (eoaErr: any) {
-          console.error('mintWithEoa also failed:', eoaErr)
-          throw mintErr // Re-throw original error
-        }
+        console.error('Auth service failed:', mintErr)
+        console.log('Trying direct mintWithEoa as fallback...')
+        mintResult = await litClient.mintWithEoa({ account: walletClient })
       }
 
-      console.log('PKP minted successfully:', mintResult)
+      console.log('PKP minted:', mintResult)
       setPkpInfo(mintResult)
-      setError('')
-
-      // Store PKP info for later use
       localStorage.setItem('litPKPInfo', JSON.stringify(mintResult))
       localStorage.setItem('litAuthData', JSON.stringify(authDataResult))
+      setError('')
 
     } catch (err: any) {
-      console.error('PKP minting error:', err)
+      console.error('Mint error:', err)
       if (err.message?.includes('insufficient funds')) {
-        setError(`Insufficient tstLPX. Get tokens from https://chronicle-yellowstone-faucet.getlit.dev/ for ${address}`)
+        setError(`Insufficient tstLPX for ${address}. Faucet: https://chronicle-yellowstone-faucet.getlit.dev/`)
       } else if (err.message?.includes('switchChain')) {
-        setError('Failed to switch to Chronicle Yellowstone. The chain has been added to wagmi config.')
+        setError('Chain switch failed. Check wagmi config.')
       } else if (err.message?.includes('User rejected')) {
-        setError('Transaction rejected by user')
+        setError('Rejected by user')
       } else {
-        setError(`Failed to mint PKP: ${err.message}`)
+        setError(`Mint failed: ${err.message}`)
       }
     } finally {
-      if (litClient) {
-        await litClient.disconnect()
-      }
+      if (litClient) await litClient.disconnect()
       setIsMinting(false)
     }
   }
@@ -247,150 +165,191 @@ Expiration Time: ${expirationTime}`
   const loadExistingPKP = () => {
     const storedPKP = localStorage.getItem('litPKPInfo')
     const storedAuth = localStorage.getItem('litAuthData')
-    if (storedPKP) {
+    if (storedPKP) { 
       const pkp = JSON.parse(storedPKP)
       setPkpInfo(pkp)
-      console.log('Loaded existing PKP:', pkp)
+      console.log('Loaded PKP:', pkp) 
     }
-    if (storedAuth) {
+    if (storedAuth) { 
       const auth = JSON.parse(storedAuth)
       setAuthData(auth)
-      console.log('Loaded existing auth data:', auth)
+      console.log('Loaded auth:', auth) 
     }
   }
 
   const executeLitAction = async () => {
-    if (!address || !walletClient) {
-      setError('Wallet not connected')
-      return
-    }
-
-    if (!pkpInfo || !authData) {
-      setError('Please mint a PKP first or load an existing one')
-      return
+    if (!address || !walletClient || !pkpInfo || !authData) { 
+      setError('Missing PKP or authData - mint PKP first')
+      return 
     }
 
     setIsLoading(true)
     setError('')
     setResult('')
-
     let litClient: any = null
 
     try {
-      console.log('Creating Lit Client for Lit Action execution...')
-      litClient = await createLitClient({
-        network: nagaDev,
-      })
+      console.log('Creating Lit Client...')
+      litClient = await createLitClient({ network: nagaDev })
+      console.log('Client ready')
 
-      console.log('Lit client created successfully')
+      // Simple test Lit Action that just returns a greeting
+      // Replace with your own IPFS hash after uploading simple-lit-action.js
+      const litActionIpfsId = 'QmUSu2DGUpFVoLjYqiYpxgDaTKtokQj2Lw3GrLDsAsn8mv' // Placeholder - upload simple-lit-action.js to IPFS
+      const pkpPublicKey = pkpInfo.data?.pubkey || pkpInfo.pubkey || pkpInfo.publicKey || pkpInfo.pkpPublicKey
+      console.log('PKP pubkey:', pkpPublicKey)
 
-      // Define the Lit Action IPFS ID
-      const litActionIpfsId = 'QmUSu2DGUpFVoLjYqiYpxgDaTKtokQj2Lw3GrLDsAsn8mv'
+      // Generate session key pair
+      const sessionKeyPair = generateSessionKeyPair()
+      console.log('Session key:', sessionKeyPair.publicKey)
 
-      // Create a simplified authContext for execution
-      // Since we don't have AuthManager, we'll use a callback-based approach
-      console.log('Creating authContext for execution...')
-      const authContext = {
-        pkpPublicKey: pkpInfo.publicKey || pkpInfo.pkpPublicKey || pkpInfo.pubkey,
-        authData: authData,
-        chain: 'baseSepolia',
+      // Create resource using wildcard to avoid prefix issues
+      const litActionResource = new LitActionResource('*')
+      const resourceAbilityRequests = [{
+        resource: litActionResource,
+        ability: 'lit-action-execution' // Using string instead of LitAbility.LitActionExecution since it's undefined
+      }]
+
+      // Create authConfig with wildcard resource
+      const authConfig = {
+        resources: resourceAbilityRequests,
+        expiration: new Date(Date.now() + 1000 * 60 * 10).toISOString(),
+        statement: 'Execute Genius Search Lit Action',
+        domain: window.location.origin,
+        capabilityAuthSigs: [],
       }
+      console.log('Using wildcard resource to bypass prefix mismatch')
 
-      console.log('AuthContext created:', authContext)
+      // Create authContext with proper structure
+      const authContext = {
+        authData, // Use the stored auth data from PKP minting
+        pkpPublicKey,
+        sessionKeyPair,
+        authConfig,
+        authNeededCallback: async (params: any) => {
+          console.log('Auth callback triggered')
+          
+          // Get nonce from lit client
+          const context = await litClient.getContext()
+          const nonce = context.latestBlockhash
+          
+          // Create SIWE with wildcard resource ReCaps
+          const siweMessage = await createSiweMessage({
+            walletAddress: address!,
+            nonce,
+            expiration: authConfig.expiration,
+            domain: authConfig.domain || window.location.host,
+            statement: authConfig.statement,
+            uri: window.location.origin,
+            version: '1',
+            chainId: 84532,
+            resources: resourceAbilityRequests, // Wildcard resource
+          })
+          
+          console.log('SIWE with wildcard ReCaps:', siweMessage)
+          
+          const signature = await walletClient.signMessage({ message: siweMessage })
+          console.log('MetaMask signed')
+          
+          return {
+            sig: signature,
+            derivedVia: 'web3.eth.personal.sign',
+            signedMessage: siweMessage,
+            address: address!.toLowerCase(),
+          }
+        },
+      }
+      console.log('AuthContext created with shorthand resources')
 
-      console.log('Executing Lit Action with proper authContext...')
+      console.log('Executing Lit Action...')
 
-      // Execute the Lit Action with PKP-based authContext
       const litActionResponse = await litClient.executeJs({
         ipfsId: litActionIpfsId,
         authContext,
         jsParams: {
-          query: searchQuery,
-          limit: 5,
           userAddress: address,
-          language: navigator.language,
-          userAgent: navigator.userAgent,
-          sessionId: `web-${address}-${Date.now()}`,
-          pkpPublicKey: pkpInfo.publicKey || pkpInfo.pkpPublicKey || pkpInfo.pubkey,
+          pkpPublicKey,
         },
       })
 
-      console.log('Lit Action response:', litActionResponse)
+      console.log('Response:', litActionResponse)
 
       if (litActionResponse?.response) {
-        const responseData = typeof litActionResponse.response === 'string' 
-          ? JSON.parse(litActionResponse.response)
+        const data = typeof litActionResponse.response === 'string' 
+          ? JSON.parse(litActionResponse.response) 
           : litActionResponse.response
-        setResult(JSON.stringify(responseData, null, 2))
-        console.log('Lit Action executed successfully:', responseData)
+        setResult(JSON.stringify(data, null, 2))
+        console.log('Lit Action executed successfully:', data)
       } else if (litActionResponse?.logs) {
         setResult(JSON.stringify(litActionResponse.logs, null, 2))
       } else {
-        setError('No response from Lit Action')
+        setError('No response')
       }
 
     } catch (err: any) {
-      console.error('Lit Action execution error:', err)
-      
-      if (err.name === 'ZodError') {
-        try {
-          const zodErrors = JSON.parse(err.message)
-          setError(`Validation error: ${zodErrors[0]?.message || 'Invalid parameters at ' + zodErrors[0]?.path?.join('.')}`)
-        } catch {
-          setError('Parameter validation failed. Check the authContext structure.')
-        }
+      console.error('Execution error:', err)
+      if (err.message?.includes('NodeResourceIdNotFound')) {
+        setError('Resource not found - IPFS may not be pinned on Naga')
       } else {
-        setError(err.message || 'Failed to execute Lit Action')
+        setError(err.message || 'Execution failed')
       }
     } finally {
-      if (litClient) {
-        await litClient.disconnect()
-      }
+      if (litClient) await litClient.disconnect()
       setIsLoading(false)
     }
   }
 
-  // Try to load existing PKP on component mount
-  useEffect(() => {
-    loadExistingPKP()
+  useEffect(() => { 
+    loadExistingPKP() 
   }, [])
 
   return (
     <div>
-      <h2>Genius Search Lit Action Test</h2>
+      <h2>Lit Protocol v8 Bug Reproduction</h2>
+      <div style={{ 
+        marginBottom: '15px', 
+        padding: '10px', 
+        backgroundColor: '#ffebee', 
+        border: '1px solid #f44336', 
+        borderRadius: '5px', 
+        fontSize: '12px' 
+      }}>
+        <strong>Bug:</strong> SDK generates <code>lit-litaction://[ipfsId]</code> in ReCaps, but nodes expect <code>lit-action://[ipfsId]</code><br/>
+        <strong>Result:</strong> NodeSIWECapabilityInvalid error - "Resource id not found in auth_sig capabilities"
+      </div>
       
-      {/* Chronicle Yellowstone Balance Display */}
+      {/* Balance Display */}
       <div style={{ 
         marginBottom: '10px', 
         padding: '10px', 
-        backgroundColor: parseFloat(tstLPXBalance) > 0 ? '#e8f5e9' : '#ffebee',
-        border: `1px solid ${parseFloat(tstLPXBalance) > 0 ? '#4caf50' : '#f44336'}`,
-        borderRadius: '5px',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center'
+        backgroundColor: parseFloat(tstLPXBalance) > 0 ? '#e8f5e9' : '#ffebee', 
+        border: `1px solid ${parseFloat(tstLPXBalance) > 0 ? '#4caf50' : '#f44336'}`, 
+        borderRadius: '5px', 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center' 
       }}>
         <div>
-          <strong>Chronicle Yellowstone Balance:</strong> {tstLPXBalance} tstLPX
+          <strong>Chronicle Balance:</strong> {tstLPXBalance} tstLPX
           {parseFloat(tstLPXBalance) === 0 && (
             <span style={{ color: '#f44336', fontSize: '12px', display: 'block', marginTop: '5px' }}>
-              ⚠️ You need test tokens to mint a PKP. Get them from the faucet below.
+              ⚠️ Get from <a href="https://chronicle-yellowstone-faucet.getlit.dev/" target="_blank" rel="noopener noreferrer">Faucet</a> for {address}
             </span>
           )}
         </div>
-        <button
-          onClick={checkYellowstoneBalance}
-          style={{
-            padding: '6px 12px',
-            backgroundColor: '#2196F3',
-            color: 'white',
-            border: 'none',
-            borderRadius: '3px',
-            cursor: 'pointer',
-            fontSize: '12px'
+        <button 
+          onClick={checkYellowstoneBalance} 
+          style={{ 
+            padding: '6px 12px', 
+            backgroundColor: '#2196F3', 
+            color: 'white', 
+            border: 'none', 
+            borderRadius: '3px', 
+            cursor: 'pointer', 
+            fontSize: '12px' 
           }}
         >
-          Refresh Balance
+          Refresh
         </button>
       </div>
 
@@ -398,26 +357,20 @@ Expiration Time: ${expirationTime}`
         marginBottom: '10px', 
         padding: '10px', 
         backgroundColor: '#f0f8ff', 
-        border: '1px solid #0066cc',
-        borderRadius: '5px',
-        fontSize: '12px'
+        border: '1px solid #0066cc', 
+        borderRadius: '5px', 
+        fontSize: '12px' 
       }}>
-        <strong>Lit Protocol v8 Setup:</strong>
-        <ol style={{ margin: '5px 0', paddingLeft: '20px' }}>
-          <li>First, get test tokens from the <a href="https://chronicle-yellowstone-faucet.getlit.dev/" target="_blank" rel="noopener noreferrer">Chronicle Yellowstone Faucet</a> for your Porto address: <code>{address}</code></li>
-          <li>Authenticate with Porto wallet (signs SIWE message)</li>
-          <li>Mint a PKP using authenticated data (requires test tokens on Chronicle Yellowstone)</li>
-          <li>Execute the Lit Action using the PKP with proper authContext</li>
-        </ol>
+        <strong>v8 Flow:</strong> EOA auth (MetaMask SIWE) → Mint PKP → Session delegation (ReCaps for lit-action://IPFS) → Execute.
       </div>
 
       {/* PKP Section */}
       <div style={{ 
         marginBottom: '15px', 
         padding: '10px', 
-        backgroundColor: pkpInfo ? '#e8f5e9' : '#fff3e0',
-        border: `1px solid ${pkpInfo ? '#4caf50' : '#ff9800'}`,
-        borderRadius: '5px'
+        backgroundColor: pkpInfo ? '#e8f5e9' : '#fff3e0', 
+        border: `1px solid ${pkpInfo ? '#4caf50' : '#ff9800'}`, 
+        borderRadius: '5px' 
       }}>
         <h3 style={{ margin: '0 0 10px 0', fontSize: '16px' }}>
           Step 1: PKP Setup {pkpInfo && '✅'}
@@ -426,32 +379,32 @@ Expiration Time: ${expirationTime}`
         {!pkpInfo ? (
           <div>
             <p style={{ fontSize: '12px', margin: '5px 0' }}>
-              No PKP found. Please mint a new one:
+              No PKP found. Mint one (needs tstLPX):
             </p>
             <button 
-              onClick={mintPKP}
-              disabled={isMinting || !address}
+              onClick={mintPKP} 
+              disabled={isMinting || !address || parseFloat(tstLPXBalance) === 0} 
               style={{ 
                 padding: '8px 16px', 
-                backgroundColor: isMinting ? '#ccc' : '#ff9800',
-                color: 'white',
-                border: 'none',
-                borderRadius: '5px',
-                cursor: (isMinting || !address) ? 'not-allowed' : 'pointer',
-                marginRight: '10px'
+                backgroundColor: isMinting ? '#ccc' : '#ff9800', 
+                color: 'white', 
+                border: 'none', 
+                borderRadius: '5px', 
+                cursor: (isMinting || !address || parseFloat(tstLPXBalance) === 0) ? 'not-allowed' : 'pointer', 
+                marginRight: '10px' 
               }}
             >
-              {isMinting ? 'Minting PKP...' : 'Mint New PKP'}
+              {isMinting ? 'Minting...' : 'Mint PKP with MetaMask'}
             </button>
             <button 
-              onClick={loadExistingPKP}
+              onClick={loadExistingPKP} 
               style={{ 
                 padding: '8px 16px', 
-                backgroundColor: '#2196F3',
-                color: 'white',
-                border: 'none',
-                borderRadius: '5px',
-                cursor: 'pointer'
+                backgroundColor: '#2196F3', 
+                color: 'white', 
+                border: 'none', 
+                borderRadius: '5px', 
+                cursor: 'pointer' 
               }}
             >
               Load Existing PKP
@@ -460,23 +413,23 @@ Expiration Time: ${expirationTime}`
         ) : (
           <div>
             <p style={{ fontSize: '12px', margin: '5px 0', color: '#4caf50' }}>
-              PKP Ready! Public Key: {(pkpInfo.publicKey || pkpInfo.pkpPublicKey)?.substring(0, 20)}...
+              PKP Ready! Public Key: {(pkpInfo.data?.pubkey || pkpInfo.pubkey || pkpInfo.publicKey || pkpInfo.pkpPublicKey)?.substring(0, 20)}...
             </p>
             <button 
-              onClick={() => {
+              onClick={() => { 
                 setPkpInfo(null)
                 setAuthData(null)
                 localStorage.removeItem('litPKPInfo')
                 localStorage.removeItem('litAuthData')
-              }}
+              }} 
               style={{ 
                 padding: '6px 12px', 
-                backgroundColor: '#f44336',
-                color: 'white',
-                border: 'none',
-                borderRadius: '3px',
-                cursor: 'pointer',
-                fontSize: '12px'
+                backgroundColor: '#f44336', 
+                color: 'white', 
+                border: 'none', 
+                borderRadius: '3px', 
+                cursor: 'pointer', 
+                fontSize: '12px' 
               }}
             >
               Clear PKP
@@ -484,96 +437,51 @@ Expiration Time: ${expirationTime}`
           </div>
         )}
       </div>
-      
-      <div style={{ marginBottom: '10px' }}>
-        <button 
-          onClick={checkPortoKeys}
-          disabled={!address}
-          style={{ 
-            padding: '8px 16px', 
-            backgroundColor: '#6f42c1',
-            color: 'white',
-            border: 'none',
-            borderRadius: '5px',
-            cursor: !address ? 'not-allowed' : 'pointer',
-            marginRight: '10px'
-          }}
-        >
-          Check Porto Keys
-        </button>
-        <span style={{ fontSize: '12px', color: '#666' }}>
-          (Check if admin keys are set up)
-        </span>
-      </div>
 
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          Search Query: 
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ marginLeft: '10px', padding: '5px' }}
-            placeholder="Enter artist or song name"
-          />
-        </label>
-      </div>
-      
+
+
+      {/* Execute Button */}
       <button 
-        onClick={executeLitAction}
-        disabled={isLoading || !address || !pkpInfo}
+        onClick={executeLitAction} 
+        disabled={isLoading || !address || !pkpInfo} 
         style={{ 
           padding: '10px 20px', 
-          backgroundColor: (isLoading || !pkpInfo) ? '#ccc' : '#007bff',
-          color: 'white',
-          border: 'none',
-          borderRadius: '5px',
-          cursor: (isLoading || !address || !pkpInfo) ? 'not-allowed' : 'pointer'
+          backgroundColor: (isLoading || !pkpInfo) ? '#ccc' : '#007bff', 
+          color: 'white', 
+          border: 'none', 
+          borderRadius: '5px', 
+          cursor: (isLoading || !address || !pkpInfo) ? 'not-allowed' : 'pointer' 
         }}
       >
-        {isLoading ? 'Executing...' : 'Step 2: Test Genius Search Lit Action'}
+        {isLoading ? 'Executing...' : 'Step 2: Test Lit Action (Demonstrates v8 Bug)'}
       </button>
-      
-      {keys && (
-        <div style={{ marginTop: '10px' }}>
-          <h3>Porto Account Keys:</h3>
-          <pre style={{ 
-            backgroundColor: '#f0f8ff', 
-            padding: '10px', 
-            borderRadius: '5px',
-            overflow: 'auto',
-            maxHeight: '300px',
-            fontSize: '12px',
-            border: '1px solid #0066cc'
-          }}>
-            {keys}
-          </pre>
-        </div>
-      )}
 
+
+      {/* Error Display */}
       {error && (
         <div style={{ 
           marginTop: '10px', 
           padding: '10px', 
           backgroundColor: '#ffebee', 
-          border: '1px solid #f44336',
-          borderRadius: '5px',
-          color: '#c62828'
+          border: '1px solid #f44336', 
+          borderRadius: '5px', 
+          color: '#c62828' 
         }}>
           Error: {error}
         </div>
       )}
-      
+
+      {/* Result Display */}
       {result && (
         <div style={{ marginTop: '10px' }}>
           <h3>Lit Action Result:</h3>
           <pre style={{ 
             backgroundColor: '#f5f5f5', 
             padding: '10px', 
-            borderRadius: '5px',
-            overflow: 'auto',
-            maxHeight: '400px',
-            fontSize: '12px'
+            borderRadius: '5px', 
+            overflow: 'auto', 
+            maxHeight: '400px', 
+            fontSize: '12px' 
           }}>
             {result}
           </pre>
