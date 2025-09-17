@@ -8,7 +8,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@lit-protocol/auth": "^8.0.0-alpha.14",
     "@lit-protocol/auth-helpers": "^8.0.0-beta.15",
+    "@lit-protocol/crypto": "^7.3.0",
     "@lit-protocol/lit-client": "^8.0.0-beta.15",
     "@lit-protocol/networks": "^8.0.0-beta.15",
     "@tanstack/react-query": "^5",

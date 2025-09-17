@@ -20,12 +20,16 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
+    hmr: {
+      host: 'localhost',
+      port: 5173
+    },
     allowedHosts: [
       'localhost',
       '127.0.0.1',
-      'eb68c0d5d208.ngrok-free.app', // Your specific ngrok domain
+      'c52fb18324f0.ngrok-free.app', // Your ngrok domain
       '.ngrok-free.app', // Allow any ngrok-free.app subdomain
-      '.ngrok.io', // Allow any ngrok.io subdomain (if you have a paid plan)
+      '.ngrok.io', // Allow any ngrok.io subdomain
     ],
   },
 })

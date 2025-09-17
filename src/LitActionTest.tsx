@@ -2,9 +2,18 @@ import { useState, useEffect } from 'react'
 import { useAccount, useWalletClient, useSwitchChain } from 'wagmi'
 import { createLitClient } from '@lit-protocol/lit-client'
 import { nagaDev } from '@lit-protocol/networks'
-import { generateSessionKeyPair } from '@lit-protocol/crypto'
-import { LitActionResource, LitAbility, createSiweMessage } from '@lit-protocol/auth-helpers'
-import { createPublicClient, http, formatEther } from 'viem'
+import { createPublicClient, http, formatEther, Chain } from 'viem'
+import { createAuthManager, storagePlugins, WalletClientAuthenticator } from "@lit-protocol/auth";
+
+const authManager = createAuthManager({
+  storage: storagePlugins.localStorage({
+    appName: "my-app",
+    networkName: "naga-dev",
+  }),
+});
+
+type MintWithAuthResult = Awaited<ReturnType<Awaited<ReturnType<typeof createLitClient>>['authService']['mintWithAuth']>> | Awaited<ReturnType<Awaited<ReturnType<typeof createLitClient>>['mintWithEoa']>>;
+type LitClientInstance = Awaited<ReturnType<typeof createLitClient>>;
 
 export function LitActionTest() {
   const { address } = useAccount()
@@ -13,25 +22,13 @@ export function LitActionTest() {
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<string>('')
   const [error, setError] = useState<string>('')
-  const [pkpInfo, setPkpInfo] = useState<any>(null)
+  const [pkpInfo, setPkpInfo] = useState<MintWithAuthResult | null>(null); 
   const [isMinting, setIsMinting] = useState(false)
   const [tstLPXBalance, setTstLPXBalance] = useState<string>('0')
-  const [authData, setAuthData] = useState<any>(null)
+  const [authData, setAuthData] = useState<Awaited<ReturnType<typeof WalletClientAuthenticator.authenticate>> | null>(null)
 
   // Chronicle Yellowstone config
-  const chronicleYellowstone = {
-    id: 175188,
-    name: 'Chronicle Yellowstone - Lit Protocol Testnet',
-    network: 'chronicle-yellowstone',
-    nativeCurrency: { decimals: 18, name: 'Test LPX', symbol: 'tstLPX' },
-    rpcUrls: { 
-      default: { http: ['https://yellowstone-rpc.litprotocol.com'] },
-      public: { http: ['https://yellowstone-rpc.litprotocol.com'] }
-    },
-    blockExplorers: { 
-      default: { name: 'Explorer', url: 'https://yellowstone-explorer.litprotocol.com' } 
-    },
-  }
+  const chronicleYellowstone = nagaDev.getChainConfig() as Chain;
 
   // Balance check
   const checkYellowstoneBalance = async () => {
@@ -68,7 +65,7 @@ export function LitActionTest() {
 
     setIsMinting(true)
     setError('')
-    let litClient: any = null
+    let litClient: LitClientInstance | null = null
 
     try {
       console.log('Switching to Chronicle Yellowstone...')
@@ -81,66 +78,34 @@ export function LitActionTest() {
 
       console.log('Creating Lit Client...')
       litClient = await createLitClient({ network: nagaDev })
-      console.log('Lit client ready')
+      console.log('Lit client ready');
 
-      // SIWE for authData with lowercase address
-      const domain = window.location.host
-      const uri = window.location.origin
-      const statement = 'Sign in to mint a PKP'
-      const nonce = Math.random().toString(36).substring(2, 15)
-      const issuedAt = new Date().toISOString()
-      const expirationTime = new Date(Date.now() + 1000 * 60 * 10).toISOString()
-      const chainId = chronicleYellowstone.id
-      const siweMessage = `${domain} wants you to sign in with your Ethereum account:\n${address!.toLowerCase()}\n\n${statement}\n\nURI: ${uri}\nVersion: 1\nChain ID: ${chainId}\nNonce: ${nonce}\nIssued At: ${issuedAt}\nExpiration Time: ${expirationTime}`
+      const authDataResult = await WalletClientAuthenticator.authenticate(walletClient);
 
-      console.log('Signing SIWE with MetaMask...')
-      const signature = await walletClient.signMessage({ message: siweMessage })
-      console.log('Signed')
-
-      const authDataResult = {
-        authMethodType: 1,
-        authMethodId: address!.toLowerCase(),
-        accessToken: JSON.stringify({
-          sig: signature,
-          derivedVia: 'web3.eth.personal.sign',
-          signedMessage: siweMessage,
-          address: address!.toLowerCase(),
-        }),
-      }
       console.log('Auth data:', authDataResult)
       setAuthData(authDataResult)
 
       // Mint with auth service
-      let mintResult
+      let mintResult: MintWithAuthResult;    
+      
       try {
         mintResult = await litClient.authService.mintWithAuth({
           authData: authDataResult,
           authServiceBaseUrl: 'https://naga-auth-service.onrender.com',
           scopes: ['sign-anything'],
-        })
+        });
         console.log('Auth service mint response:', mintResult)
-        
-        if (mintResult?.txParams) {
-          await switchChain({ chainId: chronicleYellowstone.id })
-          const txHash = await walletClient.sendTransaction({ 
-            ...mintResult.txParams, 
-            chain: chronicleYellowstone 
-          })
-          const publicClient = createPublicClient({ 
-            chain: chronicleYellowstone, 
-            transport: http() 
-          })
-          const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
-          mintResult = { ...mintResult, transactionHash: txHash, receipt }
-        }
+        setPkpInfo(mintResult);
       } catch (mintErr: any) {
         console.error('Auth service failed:', mintErr)
         console.log('Trying direct mintWithEoa as fallback...')
-        mintResult = await litClient.mintWithEoa({ account: walletClient })
+        mintResult = await litClient.mintWithEoa({ account: walletClient });
+
+        setPkpInfo(mintResult);
       }
 
       console.log('PKP minted:', mintResult)
-      setPkpInfo(mintResult)
+      
       localStorage.setItem('litPKPInfo', JSON.stringify(mintResult))
       localStorage.setItem('litAuthData', JSON.stringify(authDataResult))
       setError('')
@@ -179,14 +144,15 @@ export function LitActionTest() {
 
   const executeLitAction = async () => {
     if (!address || !walletClient || !pkpInfo || !authData) { 
-      setError('Missing PKP or authData - mint PKP first')
+      setError('Missing PKP or authData - mint PKP first.')
+      console.log(`Address: ${address} Wallet Client: ${walletClient} PKP Info: ${pkpInfo} Auth Data: ${authData}`)
       return 
     }
 
     setIsLoading(true)
     setError('')
     setResult('')
-    let litClient: any = null
+    let litClient: Awaited<ReturnType<typeof createLitClient>> | null = null
 
     try {
       console.log('Creating Lit Client...')
@@ -196,69 +162,23 @@ export function LitActionTest() {
       // Simple test Lit Action that just returns a greeting
       // Replace with your own IPFS hash after uploading simple-lit-action.js
       const litActionIpfsId = 'QmUSu2DGUpFVoLjYqiYpxgDaTKtokQj2Lw3GrLDsAsn8mv' // Placeholder - upload simple-lit-action.js to IPFS
-      const pkpPublicKey = pkpInfo.data?.pubkey || pkpInfo.pubkey || pkpInfo.publicKey || pkpInfo.pkpPublicKey
-      console.log('PKP pubkey:', pkpPublicKey)
-
-      // Generate session key pair
-      const sessionKeyPair = generateSessionKeyPair()
-      console.log('Session key:', sessionKeyPair.publicKey)
-
-      // Create resource using wildcard to avoid prefix issues
-      const litActionResource = new LitActionResource('*')
-      const resourceAbilityRequests = [{
-        resource: litActionResource,
-        ability: 'lit-action-execution' // Using string instead of LitAbility.LitActionExecution since it's undefined
-      }]
-
-      // Create authConfig with wildcard resource
-      const authConfig = {
-        resources: resourceAbilityRequests,
-        expiration: new Date(Date.now() + 1000 * 60 * 10).toISOString(),
-        statement: 'Execute Genius Search Lit Action',
-        domain: window.location.origin,
-        capabilityAuthSigs: [],
-      }
-      console.log('Using wildcard resource to bypass prefix mismatch')
-
-      // Create authContext with proper structure
-      const authContext = {
-        authData, // Use the stored auth data from PKP minting
-        pkpPublicKey,
-        sessionKeyPair,
-        authConfig,
-        authNeededCallback: async (params: any) => {
-          console.log('Auth callback triggered')
-          
-          // Get nonce from lit client
-          const context = await litClient.getContext()
-          const nonce = context.latestBlockhash
-          
-          // Create SIWE with wildcard resource ReCaps
-          const siweMessage = await createSiweMessage({
-            walletAddress: address!,
-            nonce,
-            expiration: authConfig.expiration,
-            domain: authConfig.domain || window.location.host,
-            statement: authConfig.statement,
-            uri: window.location.origin,
-            version: '1',
-            chainId: 84532,
-            resources: resourceAbilityRequests, // Wildcard resource
-          })
-          
-          console.log('SIWE with wildcard ReCaps:', siweMessage)
-          
-          const signature = await walletClient.signMessage({ message: siweMessage })
-          console.log('MetaMask signed')
-          
-          return {
-            sig: signature,
-            derivedVia: 'web3.eth.personal.sign',
-            signedMessage: siweMessage,
-            address: address!.toLowerCase(),
-          }
+      console.log('PKP pubkey:', pkpInfo.data?.pubkey)
+      
+      const authContext = await authManager.createPkpAuthContext({
+        authData: authData, 
+        pkpPublicKey: pkpInfo.data?.pubkey,
+        authConfig: {
+          resources: [
+            ["pkp-signing", "*"],
+            ["lit-action-execution", "*"],
+          ],
+          expiration: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(),
+          statement:  'Execute Genius Search Lit Action',
+          domain: window.location.origin,
         },
-      }
+        litClient: litClient,
+      });
+
       console.log('AuthContext created with shorthand resources')
 
       console.log('Executing Lit Action...')
@@ -268,7 +188,7 @@ export function LitActionTest() {
         authContext,
         jsParams: {
           userAddress: address,
-          pkpPublicKey,
+          pkpPublicKey: pkpInfo.data?.pubkey,
         },
       })
 
@@ -413,7 +333,7 @@ export function LitActionTest() {
         ) : (
           <div>
             <p style={{ fontSize: '12px', margin: '5px 0', color: '#4caf50' }}>
-              PKP Ready! Public Key: {(pkpInfo.data?.pubkey || pkpInfo.pubkey || pkpInfo.publicKey || pkpInfo.pkpPublicKey)?.substring(0, 20)}...
+              PKP Ready! Public Key: {(pkpInfo.data?.pubkey)?.substring(0, 20)}...
             </p>
             <button 
               onClick={() => { 

@@ -9,14 +9,27 @@ import {
   useWaitForCallsStatus,
 } from 'wagmi'
 import { exp1Address, exp1Config } from './contracts'
-import { useState, lazy, Suspense } from 'react'
+import { useState, lazy, Suspense, useEffect } from 'react'
 
 // Lazy load the Lit Action component to avoid loading Lit SDK until needed
 const LitActionTest = lazy(() => import('./LitActionTest').then(module => ({ default: module.LitActionTest })))
+const TikTokPKPLiveTest = lazy(() => import('./TikTokPKPLiveTest').then(module => ({ default: module.TikTokPKPLiveTest })))
+const TikTokOAuthConfig = lazy(() => import('./TikTokOAuthConfig').then(module => ({ default: module.TikTokOAuthConfig })))
 
 export function App() {
   const { isConnected } = useAccount()
   const [showLitAction, setShowLitAction] = useState(false)
+  const [showTikTokTest, setShowTikTokTest] = useState(false)
+  const [showTikTokOAuth, setShowTikTokOAuth] = useState(false)
+  
+  // Handle OAuth callback by checking URL
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    if (urlParams.has('code') || urlParams.has('error')) {
+      // OAuth callback detected, show TikTok OAuth component
+      setShowTikTokOAuth(true)
+    }
+  }, [])
   
   return (
     <>
@@ -43,6 +56,50 @@ export function App() {
               <Suspense fallback={<div>Loading Lit Action...</div>}>
                 <div style={{ marginTop: '20px' }}>
                   <LitActionTest />
+                </div>
+              </Suspense>
+            )}
+          </div>
+          <div style={{ marginTop: '20px' }}>
+            <button 
+              onClick={() => setShowTikTokTest(!showTikTokTest)}
+              style={{ 
+                padding: '10px 20px', 
+                backgroundColor: '#ff1744',
+                color: 'white',
+                border: 'none',
+                borderRadius: '5px',
+                cursor: 'pointer'
+              }}
+            >
+              {showTikTokTest ? 'Hide TikTok PKP Test' : '🔴 Show TikTok PKP Live Test'}
+            </button>
+            {showTikTokTest && (
+              <Suspense fallback={<div>Loading TikTok Test...</div>}>
+                <div style={{ marginTop: '20px' }}>
+                  <TikTokPKPLiveTest />
+                </div>
+              </Suspense>
+            )}
+          </div>
+          <div style={{ marginTop: '20px' }}>
+            <button 
+              onClick={() => setShowTikTokOAuth(!showTikTokOAuth)}
+              style={{ 
+                padding: '10px 20px', 
+                backgroundColor: '#000',
+                color: 'white',
+                border: '2px solid #ff0050',
+                borderRadius: '5px',
+                cursor: 'pointer'
+              }}
+            >
+              {showTikTokOAuth ? 'Hide TikTok OAuth' : '🎵 Real TikTok OAuth Login'}
+            </button>
+            {showTikTokOAuth && (
+              <Suspense fallback={<div>Loading TikTok OAuth...</div>}>
+                <div style={{ marginTop: '20px' }}>
+                  <TikTokOAuthConfig />
                 </div>
               </Suspense>
             )}
