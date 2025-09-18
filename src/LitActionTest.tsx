@@ -107,7 +107,7 @@ export function LitActionTest() {
       console.log('PKP minted:', mintResult)
       
       localStorage.setItem('litPKPInfo', JSON.stringify(mintResult))
-      localStorage.setItem('litAuthData', JSON.stringify(authDataResult))
+      localStorage.setItem('litAuthData', JSON.stringify(authData))
       setError('')
 
     } catch (err: any) {
